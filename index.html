@@ -1,0 +1,476 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temple Dash</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #163b2c;
+  font-family: Arial, sans-serif;
+  color: white;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#hud {
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  right: 15px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 20px;
+  font-weight: bold;
+  text-shadow: 2px 2px 4px black;
+  pointer-events: none;
+}
+
+#menu {
+  position: fixed;
+  inset: 0;
+  background: #0009;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel {
+  background: #122820;
+  border: 2px solid #e8c76a;
+  border-radius: 20px;
+  padding: 25px;
+  width: 90%;
+  max-width: 380px;
+  text-align: center;
+}
+
+h1 { color: #ffd76a; }
+
+button {
+  padding: 13px;
+  margin: 5px;
+  border: 0;
+  border-radius: 10px;
+  background: #ffc64b;
+  color: #231c0c;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#controls {
+  position: fixed;
+  bottom: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+#controls button {
+  width: 62px;
+  height: 55px;
+  background: #102b27cc;
+  color: white;
+  border: 1px solid white;
+  font-size: 23px;
+}
+
+.hidden { display: none !important; }
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div>
+    <div id="mapName">🌴 JUNGLE</div>
+    <div id="score">Score: 0</div>
+  </div>
+  <div id="coins">🪙 0</div>
+</div>
+
+<div id="menu">
+  <div class="panel">
+    <h1>TEMPLE DASH</h1>
+    <p id="message">
+      Run, jump, slide and collect coins!
+    </p>
+    <button id="start">START GAME</button>
+    <button id="mapBtn">CHANGE MAP</button>
+    <p>Swipe or use arrow buttons to play.</p>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="left">←</button>
+  <button id="jump">↑</button>
+  <button id="right">→</button>
+  <button id="slide">↓</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W, H;
+
+function resize() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+}
+
+addEventListener("resize", resize);
+resize();
+
+const maps = [
+  {
+    name: "🌴 JUNGLE",
+    sky: "#75c9b5",
+    ground: "#245c35",
+    road: "#71604a"
+  },
+  {
+    name: "🏜️ DESERT",
+    sky: "#f6b46d",
+    ground: "#c18a4c",
+    road: "#9c704c"
+  },
+  {
+    name: "🌙 MOON TEMPLE",
+    sky: "#202e59",
+    ground: "#29324b",
+    road: "#45465c"
+  }
+];
+
+let mapIndex = 0;
+let running = false;
+let lane = 0;
+let score = 0;
+let coinCount = 0;
+let speed = 300;
+let playerY = 0;
+let jumpSpeed = 0;
+let sliding = 0;
+let obstacles = [];
+let lastTime = 0;
+let spawnTimer = 0;
+
+function currentMap() {
+  return maps[mapIndex];
+}
+
+function updateHUD() {
+  document.getElementById("mapName").textContent =
+    currentMap().name;
+
+  document.getElementById("score").textContent =
+    "Score: " + Math.floor(score);
+
+  document.getElementById("coins").textContent =
+    "🪙 " + coinCount;
+}
+
+function changeMap() {
+  mapIndex = (mapIndex + 1) % maps.length;
+  updateHUD();
+  draw();
+}
+
+document.getElementById("mapBtn").onclick = changeMap;
+
+function startGame() {
+  score = 0;
+  coinCount = 0;
+  speed = 300;
+  lane = 0;
+  playerY = 0;
+  jumpSpeed = 0;
+  sliding = 0;
+  obstacles = [];
+  spawnTimer = 0;
+  running = true;
+
+  document.getElementById("menu")
+    .classList.add("hidden");
+
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+}
+
+document.getElementById("start").onclick = startGame;
+
+function moveLeft() {
+  if (running) lane = Math.max(-1, lane - 1);
+}
+
+function moveRight() {
+  if (running) lane = Math.min(1, lane + 1);
+}
+
+function jump() {
+  if (running && playerY === 0) {
+    jumpSpeed = 650;
+  }
+}
+
+function slide() {
+  if (running) sliding = 0.6;
+}
+
+document.getElementById("left").onclick = moveLeft;
+document.getElementById("right").onclick = moveRight;
+document.getElementById("jump").onclick = jump;
+document.getElementById("slide").onclick = slide;
+
+addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") moveLeft();
+  if (e.key === "ArrowRight") moveRight();
+  if (e.key === "ArrowUp" || e.key === " ") jump();
+  if (e.key === "ArrowDown") slide();
+});
+
+// Mobile swipe controls
+let touchStart = null;
+
+canvas.addEventListener("touchstart", e => {
+  const t = e.changedTouches[0];
+  touchStart = { x: t.clientX, y: t.clientY };
+}, { passive: true });
+
+canvas.addEventListener("touchend", e => {
+  if (!touchStart || !running) return;
+
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x;
+  const dy = t.clientY - touchStart.y;
+
+  if (Math.abs(dx) > Math.abs(dy)) {
+    dx > 0 ? moveRight() : moveLeft();
+  } else {
+    dy < 0 ? jump() : slide();
+  }
+
+  touchStart = null;
+}, { passive: true });
+
+function draw() {
+  const m = currentMap();
+  const horizon = H * 0.38;
+  const center = W / 2;
+
+  ctx.fillStyle = m.sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // Sun
+  ctx.fillStyle = "#ffe5a0";
+  ctx.beginPath();
+  ctx.arc(W * 0.8, H * 0.14, 35, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ground
+  ctx.fillStyle = m.ground;
+  ctx.fillRect(0, horizon, W, H - horizon);
+
+  // Road
+  ctx.beginPath();
+  ctx.moveTo(center - 35, horizon);
+  ctx.lineTo(center + 35, horizon);
+  ctx.lineTo(W * 0.95, H);
+  ctx.lineTo(W * 0.05, H);
+  ctx.closePath();
+  ctx.fillStyle = m.road;
+  ctx.fill();
+
+  // Lane markings
+  ctx.strokeStyle = "#e6d4a0";
+  ctx.lineWidth = 3;
+
+  for (let i = 1; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(center + (i - 1.5) * 25, horizon);
+    ctx.lineTo(center + (i - 1.5) * W * 0.3, H);
+    ctx.stroke();
+  }
+
+  // Decorative temple pillars
+  for (let side of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      let z = ((i / 4 + score / 120) % 1);
+      let y = horizon + (H - horizon) * z * z;
+      let x = center + side * (W * (0.15 + 0.4 * z * z));
+      let size = 5 + z * 20;
+
+      ctx.fillStyle = "#776447";
+      ctx.fillRect(x - size / 2, y - size * 3, size, size * 3);
+    }
+  }
+
+  // Obstacles and coins
+  for (const o of obstacles) {
+    let z = o.z;
+    let y = horizon + (H - horizon) * z * z;
+    let roadWidth = W * (0.05 + 0.43 * z * z);
+    let x = center + o.lane * roadWidth * 0.65;
+    let size = 8 + z * 35;
+
+    if (o.type === "coin") {
+      ctx.fillStyle = "#ffd43b";
+      ctx.beginPath();
+      ctx.arc(x, y - size, size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (o.type === "rock") {
+      ctx.fillStyle = "#747b77";
+      ctx.fillRect(x - size / 2, y - size, size, size);
+    } else {
+      ctx.fillStyle = "#bd4736";
+      ctx.fillRect(x - size, y - size * 2, size * 2, size * 2);
+    }
+  }
+
+  // Player character
+  const px = center + lane * W * 0.14;
+  const py = H * 0.82 - playerY;
+
+  // Shadow
+  ctx.fillStyle = "#0005";
+  ctx.beginPath();
+  ctx.ellipse(px, H * 0.83, 22, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Legs
+  ctx.strokeStyle = "#263e57";
+  ctx.lineWidth = 9;
+  ctx.beginPath();
+  ctx.moveTo(px - 6, py - 20);
+  ctx.lineTo(px - 12, py);
+  ctx.moveTo(px + 6, py - 20);
+  ctx.lineTo(px + 12, py);
+  ctx.stroke();
+
+  // Body
+  ctx.fillStyle = "#287e91";
+  ctx.fillRect(px - 12, py - 60, 24, 40);
+
+  // Arms
+  ctx.strokeStyle = "#bd805b";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(px - 10, py - 52);
+  ctx.lineTo(px - 22, py - 32);
+  ctx.moveTo(px + 10, py - 52);
+  ctx.lineTo(px + 22, py - 32);
+  ctx.stroke();
+
+  // Head
+  ctx.fillStyle = "#bd805b";
+  ctx.beginPath();
+  ctx.arc(px, py - 72, 12, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hair
+  ctx.fillStyle = "#392a24";
+  ctx.fillRect(px - 10, py - 84, 20, 6);
+}
+
+function spawnObstacle() {
+  const r = Math.random();
+
+  obstacles.push({
+    lane: Math.floor(Math.random() * 3) - 1,
+    z: 0,
+    type: r < 0.4 ? "coin" :
+          r < 0.7 ? "rock" : "barrier"
+  });
+}
+
+function gameOver() {
+  running = false;
+
+  document.getElementById("message").textContent =
+    "Game Over! Score: " + Math.floor(score) +
+    " | Coins: " + coinCount;
+
+  document.getElementById("start").textContent =
+    "PLAY AGAIN";
+
+  document.getElementById("menu")
+    .classList.remove("hidden");
+}
+
+function loop(time) {
+  if (!running) return;
+
+  const dt = Math.min((time - lastTime) / 1000, 0.04);
+  lastTime = time;
+
+  score += dt * 10;
+  speed += dt * 3;
+
+  // Jump physics
+  if (playerY > 0 || jumpSpeed > 0) {
+    playerY += jumpSpeed * dt;
+    jumpSpeed -= 1500 * dt;
+
+    if (playerY <= 0) {
+      playerY = 0;
+      jumpSpeed = 0;
+    }
+  }
+
+  sliding = Math.max(0, sliding - dt);
+
+  spawnTimer -= dt;
+
+  if (spawnTimer <= 0) {
+    spawnObstacle();
+    spawnTimer = Math.max(0.45, 1.1 - speed / 800);
+  }
+
+  for (const o of obstacles) {
+    o.z += dt * speed / 650;
+
+    if (o.z > 0.88 && o.z < 1.02 &&
+        o.lane === lane && !o.hit) {
+
+      if (o.type === "coin") {
+        coinCount++;
+        o.hit = true;
+      } else if (
+        (o.type === "rock" && playerY < 35) ||
+        (o.type === "barrier" && playerY < 35 && sliding <= 0)
+      ) {
+        gameOver();
+        return;
+      }
+    }
+  }
+
+  obstacles = obstacles.filter(o => o.z < 1.1);
+
+  updateHUD();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+updateHUD();
+draw();
+</script>
+
+</body>
+</html>
